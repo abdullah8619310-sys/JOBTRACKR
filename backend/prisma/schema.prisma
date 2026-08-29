@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ApplicationStatus {
+  APPLIED
+  INTERVIEWING
+  OFFER
+  REJECTED
+  WITHDRAWN
+}
+
+model JobApplication {
+  id             String            @id @default(cuid())
+  company        String
+  role           String
+  status         ApplicationStatus @default(APPLIED)
+  dateApplied    DateTime
+  resumeVersion  String
+  jobDescription String            @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([status])
+}

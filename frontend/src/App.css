@@ -1,0 +1,96 @@
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px 24px 48px;
+}
+
+.app-header h1 {
+  margin-bottom: 24px;
+}
+
+section {
+  margin-bottom: 32px;
+}
+
+.application-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 480px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-field label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.form-error {
+  color: #b3261e;
+}
+
+.form-success {
+  color: #1e7a34;
+  margin-top: 8px;
+}
+
+.applications-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.applications-table th,
+.applications-table td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+}
+
+.applications-table td button {
+  margin-right: 6px;
+}
+
+.list-error {
+  color: #b3261e;
+}
+
+.panel-section {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.application-details dl {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  row-gap: 8px;
+  column-gap: 12px;
+}
+
+.application-details dt {
+  font-weight: 600;
+}
+
+.application-details dd {
+  margin: 0;
+}
+
+.job-description {
+  white-space: pre-wrap;
+}

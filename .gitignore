@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Env files (defense-in-depth; backend/ and frontend/ also ignore these locally)
+.env
+.env.local
+.env.*.local
+
+# Dependencies / build output (defense-in-depth)
+node_modules/
+dist/
+dist-ssr/
+build/
+coverage/
+*.log
