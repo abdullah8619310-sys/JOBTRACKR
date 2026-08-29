@@ -8,6 +8,7 @@ import {
   updateApplication,
   deleteApplication,
   getApplication,
+  analyzeApplication,
 } from './api/applicationsApi';
 import './App.css';
 
@@ -31,6 +32,10 @@ function App() {
   const [editError, setEditError] = useState(null);
 
   const [deletingId, setDeletingId] = useState(null);
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
 
   const fetchApplications = useCallback(async () => {
     setIsListLoading(true);
@@ -71,6 +76,8 @@ function App() {
     setPanelData(null);
     setPanelError(null);
     setEditError(null);
+    setAnalysisResult(null);
+    setAnalysisError(null);
     setIsPanelLoading(true);
     try {
       const data = await getApplication(id);
@@ -96,6 +103,22 @@ function App() {
     setPanelData(null);
     setPanelError(null);
     setEditError(null);
+    setAnalysisResult(null);
+    setAnalysisError(null);
+  }
+
+  async function handleAnalyze(id) {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+    try {
+      const result = await analyzeApplication(id);
+      setAnalysisResult(result);
+    } catch (err) {
+      setAnalysisError(err.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   async function handleSaveEdit(values) {
@@ -173,6 +196,10 @@ function App() {
                 error={panelError}
                 onClose={handleClosePanel}
                 onEdit={handleEdit}
+                onAnalyze={handleAnalyze}
+                isAnalyzing={isAnalyzing}
+                analysisResult={analysisResult}
+                analysisError={analysisError}
               />
             )}
 

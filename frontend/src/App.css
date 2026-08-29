@@ -94,3 +94,20 @@ section {
 .job-description {
   white-space: pre-wrap;
 }
+
+.details-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.analysis-result {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.analysis-result h4 {
+  margin: 0 0 8px;
+}

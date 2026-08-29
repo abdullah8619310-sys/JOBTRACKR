@@ -30,10 +30,17 @@ function deleteApplication(id) {
   });
 }
 
+function analyzeApplication(id) {
+  return request(`${BASE_PATH}/${id}/analyze`, {
+    method: 'POST',
+  });
+}
+
 export {
   listApplications,
   getApplication,
   createApplication,
   updateApplication,
   deleteApplication,
+  analyzeApplication,
 };

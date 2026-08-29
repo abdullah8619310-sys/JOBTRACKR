@@ -1,10 +1,15 @@
 const prisma = require('../lib/prisma');
 const AppError = require('../utils/AppError');
+const env = require('../config/env');
 const {
   createApplicationSchema,
   updateApplicationSchema,
   idParamSchema,
 } = require('../validators/applications.validator');
+// Accessed as a namespace object (not destructured) so tests can safely
+// replace `ai.AnthropicModelClient` on the shared, cached module object
+// without needing a bundler-level module-mocking mechanism.
+const ai = require('../ai');
 
 async function createApplication(req, res) {
   const data = createApplicationSchema.parse(req.body);
@@ -55,10 +60,57 @@ async function deleteApplication(req, res) {
   res.status(204).send();
 }
 
+async function analyzeApplication(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+
+  const application = await prisma.jobApplication.findUnique({ where: { id } });
+  if (!application) {
+    throw new AppError('Job application not found', 404);
+  }
+
+  if (!application.resumeText || application.resumeText.trim() === '') {
+    throw new AppError(
+      'This application has no resume text saved yet. Add resume text before running Analyze Fit.',
+      422,
+    );
+  }
+
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new AppError(
+      'AI provider is not configured on this server (missing ANTHROPIC_API_KEY)',
+      503,
+    );
+  }
+
+  const resumeReviewSkill = ai.toolRegistry.get('resume_review');
+  if (!resumeReviewSkill) {
+    throw new AppError('resume_review skill is not registered', 500);
+  }
+
+  const modelClient = new ai.AnthropicModelClient({ apiKey: env.ANTHROPIC_API_KEY });
+  const runResumeReview = ai.withLogging('resume_review', resumeReviewSkill);
+
+  let result;
+  try {
+    result = await runResumeReview(
+      { resumeText: application.resumeText, jobDescription: application.jobDescription },
+      { modelClient },
+    );
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(`Resume Reviewer Agent call failed: ${error.message}`, 502);
+  }
+
+  res.status(200).json(result);
+}
+
 module.exports = {
   createApplication,
   listApplications,
   getApplication,
   updateApplication,
   deleteApplication,
+  analyzeApplication,
 };

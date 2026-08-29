@@ -3,6 +3,8 @@ const {
   ModelClient,
   AgentRunner,
   NotImplementedError,
+  toolRegistry,
+  resumeReview,
 } = require('../src/ai');
 
 describe('ToolRegistry', () => {
@@ -85,5 +87,12 @@ describe('AgentRunner', () => {
     await expect(runner.run({ task: 'analyze' })).rejects.toBeInstanceOf(
       NotImplementedError,
     );
+  });
+});
+
+describe('shared registry composition root', () => {
+  it('has resume_review registered against the real resumeReview skill', () => {
+    expect(toolRegistry.has('resume_review')).toBe(true);
+    expect(toolRegistry.get('resume_review')).toBe(resumeReview);
   });
 });

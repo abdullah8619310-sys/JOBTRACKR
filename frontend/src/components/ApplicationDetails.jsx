@@ -5,7 +5,17 @@ function formatDateTime(value) {
   return date.toLocaleString();
 }
 
-function ApplicationDetails({ application, isLoading, error, onClose, onEdit }) {
+function ApplicationDetails({
+  application,
+  isLoading,
+  error,
+  onClose,
+  onEdit,
+  onAnalyze,
+  isAnalyzing,
+  analysisResult,
+  analysisError,
+}) {
   return (
     <div className="application-details">
       <div className="panel-header">
@@ -49,7 +59,39 @@ function ApplicationDetails({ application, isLoading, error, onClose, onEdit }) 
             <dd>{formatDateTime(application.updatedAt)}</dd>
           </dl>
 
-          <button onClick={() => onEdit(application.id)}>Edit</button>
+          <div className="details-actions">
+            <button onClick={() => onEdit(application.id)}>Edit</button>
+            <button onClick={() => onAnalyze(application.id)} disabled={isAnalyzing}>
+              {isAnalyzing ? 'Analyzing...' : 'Analyze Fit'}
+            </button>
+          </div>
+
+          {analysisError && (
+            <p className="form-error" role="alert">
+              {analysisError}
+            </p>
+          )}
+
+          {analysisResult && (
+            <div className="analysis-result">
+              <h4>Resume Fit Analysis</h4>
+              <p>
+                <strong>Match Score:</strong> {analysisResult.matchScore}
+              </p>
+              <p>
+                <strong>Missing Keywords:</strong>{' '}
+                {analysisResult.missingKeywords.length > 0
+                  ? analysisResult.missingKeywords.join(', ')
+                  : 'None'}
+              </p>
+              <strong>Suggestions:</strong>
+              <ul>
+                {analysisResult.suggestions.map((suggestion) => (
+                  <li key={suggestion}>{suggestion}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </>
       )}
     </div>

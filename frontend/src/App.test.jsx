@@ -97,4 +97,49 @@ describe('App', () => {
     await waitFor(() => expect(applicationsApi.deleteApplication).toHaveBeenCalledWith('1'));
     expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
   });
+
+  it('analyzes an application from the details panel and displays the result', async () => {
+    const user = userEvent.setup();
+    applicationsApi.listApplications.mockResolvedValue([sampleApplication]);
+    applicationsApi.getApplication.mockResolvedValue(sampleApplication);
+    applicationsApi.analyzeApplication.mockResolvedValue({
+      matchScore: 82,
+      missingKeywords: ['Kubernetes'],
+      suggestions: ['Mention specific metrics.', 'Highlight leadership experience.'],
+    });
+
+    render(<App />);
+
+    await screen.findByText('Acme Corp');
+    await user.click(screen.getByRole('button', { name: /view/i }));
+
+    await screen.findByText('Application Details');
+    await user.click(screen.getByRole('button', { name: /analyze fit/i }));
+
+    expect(applicationsApi.analyzeApplication).toHaveBeenCalledWith('1');
+    expect(await screen.findByText(/82/)).toBeInTheDocument();
+    expect(screen.getByText(/Kubernetes/)).toBeInTheDocument();
+    expect(screen.getByText('Mention specific metrics.')).toBeInTheDocument();
+  });
+
+  it('shows an analysis error without crashing when analyze fails', async () => {
+    const user = userEvent.setup();
+    applicationsApi.listApplications.mockResolvedValue([sampleApplication]);
+    applicationsApi.getApplication.mockResolvedValue(sampleApplication);
+    applicationsApi.analyzeApplication.mockRejectedValue(
+      new Error('This application has no resume text saved yet.'),
+    );
+
+    render(<App />);
+
+    await screen.findByText('Acme Corp');
+    await user.click(screen.getByRole('button', { name: /view/i }));
+
+    await screen.findByText('Application Details');
+    await user.click(screen.getByRole('button', { name: /analyze fit/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This application has no resume text saved yet.',
+    );
+  });
 });
