@@ -61,8 +61,14 @@ JOBTRACKR/
 │   │   ├── controllers/applications.controller.js
 │   │   ├── validators/applications.validator.js
 │   │   ├── middleware/{notFound,errorHandler}.js
-│   │   └── utils/AppError.js
-│   ├── tests/{health,applications}.test.js
+│   │   ├── utils/AppError.js
+│   │   └── ai/                      # AI integration stub layer (no real AI calls yet)
+│   │       ├── toolRegistry.js       # ToolRegistry — functional skill/tool registry
+│   │       ├── modelClient.js        # ModelClient — stub, throws NotImplementedError
+│   │       ├── agentRunner.js        # AgentRunner — stub, throws NotImplementedError
+│   │       ├── errors.js             # NotImplementedError
+│   │       └── index.js              # barrel export
+│   ├── tests/{health,applications,ai}.test.js
 │   ├── .env.example
 │   └── package.json
 └── frontend/
@@ -75,6 +81,16 @@ JOBTRACKR/
     ├── .env.example
     └── package.json
 ```
+
+## AI Integration Layer (Stub)
+
+`backend/src/ai/` defines the interfaces that future AI features will be built against. No real AI functionality exists yet — this is scaffolding only:
+
+- **`ToolRegistry`** — a working (non-stub) registry for named skills/tools (`register` / `get` / `has` / `list` / `clear`). It is currently empty; no skills (e.g. `resume_review`, `draft_followup`) are registered yet.
+- **`ModelClient`** — a stub for calling an LLM provider. `generate()` always rejects with `NotImplementedError`; there are no network calls and no API keys involved.
+- **`AgentRunner`** — a stub for a planner/executor agent loop, constructed with a `modelClient` and a `toolRegistry`. `run()` always rejects with `NotImplementedError`.
+
+This layer is not wired into any HTTP route and does not affect existing CRUD behavior.
 
 ## Tech Stack & Why
 
