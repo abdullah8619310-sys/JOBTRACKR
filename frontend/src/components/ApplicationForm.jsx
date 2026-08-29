@@ -7,6 +7,7 @@ const EMPTY_VALUES = {
   status: 'APPLIED',
   dateApplied: '',
   resumeVersion: '',
+  resumeText: '',
   jobDescription: '',
 };
 
@@ -99,6 +100,18 @@ function ApplicationForm({
           name="resumeVersion"
           type="text"
           value={values.resumeVersion}
+          onChange={handleChange}
+          required
+        />
+      </div>
+
+      <div className="form-field">
+        <label htmlFor="resumeText">Resume Text</label>
+        <textarea
+          id="resumeText"
+          name="resumeText"
+          rows={4}
+          value={values.resumeText}
           onChange={handleChange}
           required
         />

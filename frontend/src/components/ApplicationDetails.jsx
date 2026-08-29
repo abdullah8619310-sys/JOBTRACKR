@@ -36,6 +36,9 @@ function ApplicationDetails({ application, isLoading, error, onClose, onEdit }) 
             <dt>Resume Version</dt>
             <dd>{application.resumeVersion}</dd>
 
+            <dt>Resume Text</dt>
+            <dd className="job-description">{application.resumeText}</dd>
+
             <dt>Job Description</dt>
             <dd className="job-description">{application.jobDescription}</dd>
 

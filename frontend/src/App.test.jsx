@@ -67,6 +67,7 @@ describe('App', () => {
       target: { value: '2026-08-01' },
     });
     await user.type(screen.getByLabelText(/resume version/i), 'v1-backend');
+    await user.type(screen.getByLabelText(/resume text/i), 'Experienced engineer.');
     await user.type(screen.getByLabelText(/job description/i), 'Build APIs.');
 
     await user.click(screen.getByRole('button', { name: /add application/i }));

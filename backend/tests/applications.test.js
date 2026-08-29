@@ -19,6 +19,7 @@ describe('Job Applications API', () => {
       role: 'Backend Engineer',
       dateApplied: '2026-08-01',
       resumeVersion: 'v1-backend',
+      resumeText: 'Experienced backend engineer skilled in Node.js and PostgreSQL.',
       jobDescription: 'Build and maintain backend services.',
     };
 
@@ -30,6 +31,7 @@ describe('Job Applications API', () => {
       role: payload.role,
       status: 'APPLIED',
       resumeVersion: payload.resumeVersion,
+      resumeText: payload.resumeText,
       jobDescription: payload.jobDescription,
     });
     expect(typeof res.body.id).toBe('string');

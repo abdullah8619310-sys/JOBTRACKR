@@ -16,6 +16,7 @@ describe('ApplicationForm', () => {
       target: { value: '2026-08-01' },
     });
     await user.type(screen.getByLabelText(/resume version/i), 'v1-backend');
+    await user.type(screen.getByLabelText(/resume text/i), 'Experienced engineer.');
     await user.type(screen.getByLabelText(/job description/i), 'Build APIs.');
 
     await user.click(screen.getByRole('button', { name: /add application/i }));
@@ -26,6 +27,7 @@ describe('ApplicationForm', () => {
       status: 'APPLIED',
       dateApplied: '2026-08-01',
       resumeVersion: 'v1-backend',
+      resumeText: 'Experienced engineer.',
       jobDescription: 'Build APIs.',
     });
   });

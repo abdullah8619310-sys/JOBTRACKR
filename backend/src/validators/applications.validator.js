@@ -18,6 +18,7 @@ const applicationShape = {
   status: applicationStatusEnum,
   dateApplied: z.coerce.date({ error: 'dateApplied must be a valid date' }),
   resumeVersion: z.string().trim().min(1, 'resumeVersion is required'),
+  resumeText: z.string().trim().min(1, 'resumeText is required'),
   jobDescription: z.string().trim().min(1, 'jobDescription is required'),
 };
 
