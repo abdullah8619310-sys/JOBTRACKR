@@ -2,9 +2,8 @@ const { ToolRegistry } = require('./toolRegistry');
 const { ModelClient } = require('./modelClient');
 const { AgentRunner } = require('./agentRunner');
 const { NotImplementedError } = require('./errors');
-const { AnthropicModelClient } = require('./clients/anthropicModelClient');
 const { resumeReview, RESUME_REVIEW_TOOL } = require('./skills/resumeReview');
-const { toolRegistry } = require('./registry');
+const { toolRegistry, GroqModelClient } = require('./registry');
 const { withLogging } = require('./hooks');
 
 module.exports = {
@@ -12,7 +11,7 @@ module.exports = {
   ModelClient,
   AgentRunner,
   NotImplementedError,
-  AnthropicModelClient,
+  GroqModelClient,
   resumeReview,
   RESUME_REVIEW_TOOL,
   toolRegistry,

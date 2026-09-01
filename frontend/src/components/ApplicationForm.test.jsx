@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import ApplicationForm from './ApplicationForm';
 
+// dateApplied has a `min` of today (a record's dateApplied can never be
+// before its own creation date), so tests must use today's date — a fixed
+// past date would fail the input's native min-date constraint in jsdom.
+const TODAY = new Date().toISOString().slice(0, 10);
+
 describe('ApplicationForm', () => {
   it('submits the entered values', async () => {
     const user = userEvent.setup();
@@ -13,7 +18,7 @@ describe('ApplicationForm', () => {
     await user.type(screen.getByLabelText(/company/i), 'Acme Corp');
     await user.type(screen.getByLabelText(/^role$/i), 'Backend Engineer');
     fireEvent.change(screen.getByLabelText(/date applied/i), {
-      target: { value: '2026-08-01' },
+      target: { value: TODAY },
     });
     await user.type(screen.getByLabelText(/resume version/i), 'v1-backend');
     await user.type(screen.getByLabelText(/resume text/i), 'Experienced engineer.');
@@ -25,7 +30,7 @@ describe('ApplicationForm', () => {
       company: 'Acme Corp',
       role: 'Backend Engineer',
       status: 'APPLIED',
-      dateApplied: '2026-08-01',
+      dateApplied: TODAY,
       resumeVersion: 'v1-backend',
       resumeText: 'Experienced engineer.',
       jobDescription: 'Build APIs.',

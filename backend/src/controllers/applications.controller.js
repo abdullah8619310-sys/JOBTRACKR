@@ -5,9 +5,10 @@ const {
   createApplicationSchema,
   updateApplicationSchema,
   idParamSchema,
+  toUtcDateOnly,
 } = require('../validators/applications.validator');
 // Accessed as a namespace object (not destructured) so tests can safely
-// replace `ai.AnthropicModelClient` on the shared, cached module object
+// replace `ai.GroqModelClient` on the shared, cached module object
 // without needing a bundler-level module-mocking mechanism.
 const ai = require('../ai');
 
@@ -44,6 +45,13 @@ async function updateApplication(req, res) {
     throw new AppError('Job application not found', 404);
   }
 
+  if (data.dateApplied && toUtcDateOnly(data.dateApplied) < toUtcDateOnly(existing.createdAt)) {
+    throw new AppError(
+      'dateApplied cannot be before this record was created — a job cannot have been applied to before this application record existed',
+      400,
+    );
+  }
+
   const application = await prisma.jobApplication.update({ where: { id }, data });
   res.status(200).json(application);
 }
@@ -75,9 +83,9 @@ async function analyzeApplication(req, res) {
     );
   }
 
-  if (!env.ANTHROPIC_API_KEY) {
+  if (!env.GROQ_API_KEY) {
     throw new AppError(
-      'AI provider is not configured on this server (missing ANTHROPIC_API_KEY)',
+      'AI provider is not configured on this server (missing GROQ_API_KEY)',
       503,
     );
   }
@@ -87,7 +95,7 @@ async function analyzeApplication(req, res) {
     throw new AppError('resume_review skill is not registered', 500);
   }
 
-  const modelClient = new ai.AnthropicModelClient({ apiKey: env.ANTHROPIC_API_KEY });
+  const modelClient = new ai.GroqModelClient({ apiKey: env.GROQ_API_KEY });
   const runResumeReview = ai.withLogging('resume_review', resumeReviewSkill);
 
   let result;

@@ -59,7 +59,7 @@ describe('ModelClient', () => {
   });
 
   it('rejects with NotImplementedError when invoked, without making any network call', async () => {
-    const client = new ModelClient({ provider: 'anthropic' });
+    const client = new ModelClient({ provider: 'groq' });
 
     await expect(client.generate({ prompt: 'hello' })).rejects.toBeInstanceOf(
       NotImplementedError,

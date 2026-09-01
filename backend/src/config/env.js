@@ -8,7 +8,7 @@ const envSchema = z.object({
   // Optional: the app (and CRUD tests) must keep working with no key configured.
   // Only the Resume Reviewer Agent's analyze endpoint requires it, and it fails
   // clearly at call time if it's missing, rather than blocking the whole server.
-  ANTHROPIC_API_KEY: z.string().trim().min(1).optional(),
+  GROQ_API_KEY: z.string().trim().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

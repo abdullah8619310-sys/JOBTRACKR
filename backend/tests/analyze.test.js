@@ -1,23 +1,27 @@
-process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+process.env.GROQ_API_KEY = 'test-groq-key';
 
 const request = require('supertest');
 const app = require('../src/app');
 const prisma = require('../src/lib/prisma');
 const ai = require('../src/ai');
 
-// The controller does `new ai.AnthropicModelClient(...)` via a live property
+// The controller does `new ai.GroqModelClient(...)` via a live property
 // lookup on this exact cached module object, so replacing the property here
 // swaps it out everywhere without any real network call ever happening.
 const mockGenerate = vi.fn();
-const RealAnthropicModelClient = ai.AnthropicModelClient;
+const RealGroqModelClient = ai.GroqModelClient;
 
-class MockAnthropicModelClient {
+class MockGroqModelClient {
   constructor() {
     this.generate = mockGenerate;
   }
 }
 
-ai.AnthropicModelClient = vi.fn().mockImplementation(MockAnthropicModelClient);
+ai.GroqModelClient = vi.fn().mockImplementation(MockGroqModelClient);
+
+// dateApplied can never be before a record's own creation date, so tests
+// must use "today", not a fixed past date that will eventually go stale.
+const TODAY = new Date().toISOString().slice(0, 10);
 
 async function createTestApplication(overrides = {}) {
   const res = await request(app)
@@ -25,7 +29,7 @@ async function createTestApplication(overrides = {}) {
     .send({
       company: 'Analyze Test Co',
       role: 'Backend Engineer',
-      dateApplied: '2026-08-01',
+      dateApplied: TODAY,
       resumeVersion: 'v1',
       resumeText: 'Experienced backend engineer skilled in Node.js.',
       jobDescription: 'Looking for a backend engineer with Node.js and Kubernetes skills.',
@@ -41,7 +45,7 @@ describe('POST /api/applications/:id/analyze', () => {
   });
 
   afterAll(async () => {
-    ai.AnthropicModelClient = RealAnthropicModelClient;
+    ai.GroqModelClient = RealGroqModelClient;
     await prisma.jobApplication.deleteMany({ where: { company: 'Analyze Test Co' } });
     await prisma.$disconnect();
   });

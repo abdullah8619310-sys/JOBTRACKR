@@ -1,8 +1,9 @@
 const { NotImplementedError } = require('./errors');
 
-// Provider-agnostic model client interface. A later milestone will add
-// concrete implementations (Anthropic Claude, an OpenRouter-hosted model)
-// behind this same `generate` shape. No API calls happen here.
+// Provider-agnostic model client interface. Concrete implementations sit
+// behind this same `generate` shape — currently `GroqModelClient` for the
+// Resume Reviewer Agent; a second provider will be added for the future
+// Follow-up Agent. No API calls happen in this base class.
 class ModelClient {
   constructor({ provider } = {}) {
     this.provider = provider ?? null;

@@ -11,9 +11,9 @@ JobTrackr currently implements:
 
 - A PostgreSQL-backed `JobApplication` resource with full CRUD, built with Express and Prisma, including a persisted `resumeText` field.
 - Input validation on every write endpoint using Zod, with centralized, consistent error responses.
-- **The Resume Reviewer Agent**: a real, working AI feature. `POST /api/applications/:id/analyze` sends the application's `resumeText` and `jobDescription` to the Anthropic Claude API via structured function calling, validates the response with Zod, and returns a match score, missing keywords, and 2-3 improvement suggestions.
+- **The Resume Reviewer Agent**: a real, working AI feature. `POST /api/applications/:id/analyze` sends the application's `resumeText` and `jobDescription` to the Groq API (OpenAI-compatible, forced tool/function calling) via `groq-sdk`, validates the response with Zod, and returns a match score, missing keywords, and 2-3 improvement suggestions.
 - A React (Vite) frontend that lists, adds, views, edits, and deletes applications, and includes an "Analyze Fit" button that calls the Resume Reviewer Agent and displays its results.
-- Automated tests for both backend (Vitest + Supertest) and frontend (Vitest + React Testing Library), with the Anthropic API fully mocked in all automated tests — no automated test makes a real network call.
+- Automated tests for both backend (Vitest + Supertest) and frontend (Vitest + React Testing Library), with the Groq API fully mocked in all automated tests — no automated test makes a real network call.
 
 The second AI agent described in the Phase 3 proposal (the **Follow-up Agent**, using a second, OpenRouter-hosted model) is **not built yet** — that remains a later milestone.
 
@@ -37,19 +37,19 @@ Two independent npm projects in one repository: an Express API backed by Postgre
                                               │  PostgreSQL 17     │  │  backend/src/ai/       │
                                               │  db: jobtrackr     │  │  toolRegistry          │
                                               │  table: JobApplication│  → resume_review skill │
-                                              └───────────────────┘  │  → AnthropicModelClient │
+                                              └───────────────────┘  │  → GroqModelClient      │
                                                                       └───────────┬───────────┘
                                                                                   │ HTTPS
                                                                                   ▼
                                                                       ┌──────────────────────┐
-                                                                      │  Anthropic Claude API  │
+                                                                      │  Groq API              │
                                                                       │  (external, real net) │
                                                                       └──────────────────────┘
 ```
 
 Request flow for every CRUD write (`POST` / `PUT` / `DELETE` on `/api/applications`): **route → Zod schema validation → controller → Prisma Client → PostgreSQL**, with a single `errorHandler` middleware translating Zod errors, known Prisma errors, and application errors into consistent JSON responses.
 
-Request flow for the AI endpoint (`POST /api/applications/:id/analyze`): **route → controller (fetch application, guard for missing resume text / missing API key) → logging hook → `resume_review` skill (from the `ToolRegistry`) → `AnthropicModelClient.generate()` (Claude tool-use call) → Zod-validated structured output → JSON response.** The AI layer never queries the database directly — the controller fetches the record and passes only `resumeText`/`jobDescription` into the skill.
+Request flow for the AI endpoint (`POST /api/applications/:id/analyze`): **route → controller (fetch application, guard for missing resume text / missing API key) → logging hook → `resume_review` skill (from the `ToolRegistry`) → `GroqModelClient.generate()` (Groq forced tool-call) → Zod-validated structured output → JSON response.** The AI layer never queries the database directly — the controller fetches the record and passes only `resumeText`/`jobDescription` into the skill.
 
 ## Folder / Project Structure
 
@@ -80,9 +80,9 @@ JOBTRACKR/
 │   │       ├── registry.js           # shared ToolRegistry instance; registers resume_review
 │   │       ├── errors.js             # NotImplementedError
 │   │       ├── index.js              # barrel export
-│   │       ├── clients/anthropicModelClient.js   # real ModelClient implementation (Claude)
+│   │       ├── clients/groqModelClient.js        # real ModelClient implementation (Groq)
 │   │       └── skills/resumeReview.js            # the resume_review skill
-│   ├── tests/{health,applications,ai,hooks,resumeReview,analyze,analyzeNotConfigured}.test.js
+│   ├── tests/{health,applications,ai,hooks,resumeReview,groqModelClient,analyze,analyzeNotConfigured}.test.js
 │   ├── .env.example
 │   └── package.json
 └── frontend/
@@ -101,7 +101,7 @@ JOBTRACKR/
 The Resume Reviewer Agent is a real, working feature — not a stub. It follows the Phase 2 agent primitives from the approved proposal:
 
 - **Skill/tool registration**: `backend/src/ai/skills/resumeReview.js` exports the `resume_review` skill, registered by name in the shared `ToolRegistry` (`backend/src/ai/registry.js`). The controller looks it up by name (`toolRegistry.get('resume_review')`) rather than calling it directly.
-- **Function calling, not free-form chat**: `AnthropicModelClient` (`backend/src/ai/clients/anthropicModelClient.js`) calls the Claude API using **tool use** — the model is forced (`tool_choice`) to call a `submit_resume_review` tool with structured arguments, never a plain chat completion.
+- **Function calling, not free-form chat**: `GroqModelClient` (`backend/src/ai/clients/groqModelClient.js`) calls the Groq API (OpenAI-compatible Chat Completions) using **forced tool/function calling** — `tool_choice` is set to `{ type: 'function', function: { name: 'submit_resume_review' } }`, so the model is required to return structured arguments, never a plain chat completion. Groq returns those arguments as a JSON string (`message.tool_calls[0].function.arguments`), which the client parses before returning — a detail entirely internal to the client; the skill above it never sees the difference.
 - **Structured output validation**: the skill validates the model's tool-call arguments against `resumeReviewOutputSchema` (`backend/src/validators/resumeReview.validator.js`) — `matchScore` (0-100), `missingKeywords` (string array), `suggestions` (2-3 strings). Malformed output is rejected with a clear `502` error, never silently passed through.
 - **Logging hook**: `withLogging` (`backend/src/ai/hooks.js`) wraps every skill invocation and logs `{ agentName, timestamp, inputSize, success }` (and the error message on failure) — satisfying the proposal's transparency requirement.
 - **No `AgentRunner`, no memory store, by design**: this is a single-shot, stateless call (resume + job description in, structured JSON out). `AgentRunner` remains an unused stub reserved for a genuinely multi-step agent later — forcing it into this flow would add complexity with no behavioral benefit. There's no separate memory layer either; the resume/job-description text injected into the one prompt is the only context this call needs, and memory was never one of the four primitives committed to in the approved proposal.
@@ -115,8 +115,8 @@ The Resume Reviewer Agent is a real, working feature — not a stub. It follows 
 | ORM | Prisma 6 (`prisma` + `@prisma/client`, pinned to `6.19.3`) | Matches the approved proposal. Pinned deliberately below the newly-released Prisma 7, which removes `datasource url` from `schema.prisma` in favor of a `prisma.config.ts` + driver-adapter setup — a heavier, less standard pattern not assumed by the proposal or a typical review. |
 | Database | PostgreSQL | Matches the approved proposal. |
 | Validation | Zod 4 | Matches the approved proposal; used for both request bodies and the AI agent's structured output. |
-| Resume Reviewer Agent | Anthropic Claude API (`@anthropic-ai/sdk` `0.122.0`, model `claude-sonnet-5`), tool use / function calling | Matches the approved proposal ("Anthropic Claude API — strong at structured semantic text analysis"). Tool use forces a structured response instead of free-form chat. |
-| Backend tests | Vitest + Supertest | Vitest for a fast, modern runner; Supertest to exercise the Express app directly (`app.js` exports the app without `.listen()` specifically so tests can import it). The Anthropic API is always mocked — see [Testing](#testing). |
+| Resume Reviewer Agent | Groq API (`groq-sdk` `1.6.0`, OpenAI-compatible Chat Completions, model `openai/gpt-oss-120b`), forced tool/function calling | The approved proposal originally specified Anthropic Claude; the agent was later migrated to Groq (same `ModelClient` abstraction, same skill, same behavior — only the concrete client and env var changed). Forced tool calling still guarantees a structured response instead of free-form chat. |
+| Backend tests | Vitest + Supertest | Vitest for a fast, modern runner; Supertest to exercise the Express app directly (`app.js` exports the app without `.listen()` specifically so tests can import it). The Groq API is always mocked — see [Testing](#testing). |
 | Frontend framework | React 19 (Vite 8) | Matches the approved proposal; Vite gives fast local dev and a simple, standard React (JS) template. |
 | Frontend tests | Vitest + React Testing Library + jsdom | Same test runner family as the backend for consistency; RTL for behavior-driven component tests per the proposal's "React Testing Library" requirement. |
 
@@ -134,7 +134,7 @@ Base URL: `http://localhost:3000`. All request/response bodies are JSON.
 | DELETE | `/api/applications/:id` | — | `204` / `404` | |
 | POST | `/api/applications/:id/analyze` | — (no body) | `200` `{ matchScore, missingKeywords, suggestions }` | Runs the Resume Reviewer Agent. See failure modes below. |
 
-`status` must be one of: `APPLIED`, `INTERVIEWING`, `OFFER`, `REJECTED`, `WITHDRAWN`. `resumeText` is required on create; it's nullable at the database level only so pre-existing rows aren't broken by the migration that added it.
+`status` must be one of: `APPLIED`, `INTERVIEWING`, `OFFER`, `REJECTED`, `WITHDRAWN`. `resumeText` is required on create; it's nullable at the database level only so pre-existing rows aren't broken by the migration that added it. `dateApplied` can never be before the record's own creation date — on create it can't be before today (`400`, validated in Zod); on update it can't be before the record's actual `createdAt` (`400`, checked in the controller against the fetched row). The frontend date picker also sets a matching `min` for immediate feedback, but the backend is the actual enforcement.
 
 **`POST /:id/analyze` failure modes:**
 
@@ -142,8 +142,8 @@ Base URL: `http://localhost:3000`. All request/response bodies are JSON.
 |---|---|
 | `404` | Application does not exist. |
 | `422` | Application exists but has no `resumeText` saved. |
-| `503` | Server has no `ANTHROPIC_API_KEY` configured. |
-| `502` | The Anthropic API call failed, or it returned output that failed Zod validation. |
+| `503` | Server has no `GROQ_API_KEY` configured. |
+| `502` | The Groq API call failed, or it returned output that failed Zod validation. |
 
 Error shape (all non-2xx responses):
 ```json
@@ -183,12 +183,12 @@ NODE_ENV=development
 PORT=3000
 DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/jobtrackr?schema=public"
 
-# Optional. Only required to use the Resume Reviewer Agent (Anthropic Claude API).
+# Optional. Only required to use the Resume Reviewer Agent (Groq API).
 # The app and all CRUD functionality work fine with this left unset.
-# ANTHROPIC_API_KEY=your-anthropic-api-key
+# GROQ_API_KEY=your-groq-api-key
 ```
 
-`ANTHROPIC_API_KEY` is validated as **optional** in `config/env.js` on purpose — the server and every CRUD test must keep working with no key configured. Only `POST /api/applications/:id/analyze` requires it, and it fails cleanly with `503` at call time if it's missing, rather than blocking the whole app from starting.
+`GROQ_API_KEY` is validated as **optional** in `config/env.js` on purpose — the server and every CRUD test must keep working with no key configured. Only `POST /api/applications/:id/analyze` requires it, and it fails cleanly with `503` at call time if it's missing, rather than blocking the whole app from starting. **Put your real key only in `backend/.env`** (git-ignored) — never in `frontend/.env`, never in frontend source, never committed.
 
 **`frontend/.env.example`**
 ```
@@ -202,17 +202,18 @@ cd backend && npm test     # Vitest + Supertest
 cd frontend && npm test    # Vitest + React Testing Library
 ```
 
-**Current status (last verified locally): backend 35/35 passing, frontend 19/19 passing.**
+**Current status (last verified locally): backend 40/40 passing, frontend 19/19 passing.**
 
-**The Anthropic API is never called for real during automated tests.** `resumeReview.test.js` and `hooks.test.js` inject a fake `modelClient`; `analyze.test.js` and `analyzeNotConfigured.test.js` replace `AnthropicModelClient` on the shared `backend/src/ai` module object with a mock class before any request is made (a plain Node module-cache technique, chosen after confirming `vi.mock` does not reliably intercept a plain CommonJS `require()` chain in this project — an earlier attempt at mocking the SDK this way was caught making a real network call, which is exactly what this approach prevents). A real Anthropic API key is only ever used for manual/demo verification, never in `npm test`.
+**The Groq API is never called for real during automated tests.** `resumeReview.test.js` and `hooks.test.js` inject a fake `modelClient`; `groqModelClient.test.js` constructs a real `GroqModelClient` but replaces its internal `client.chat.completions.create` with a mock (no `groq-sdk` network call); `analyze.test.js` and `analyzeNotConfigured.test.js` replace `GroqModelClient` on the shared `backend/src/ai` module object with a mock class before any request is made (a plain Node module-cache technique, chosen after confirming `vi.mock` does not reliably intercept a plain CommonJS `require()` chain in this project — an earlier attempt at mocking the SDK this way was caught making a real network call, which is exactly what this approach prevents). A real Groq API key is only ever used for manual/demo verification, never in `npm test`.
 
-- **Backend tests** (35): the original 19 CRUD/health tests, plus:
+- **Backend tests** (40): the original 19 CRUD/health tests, plus:
   - `resumeReview.test.js` — the skill's success path, prompt construction, missing-model-client guard, and malformed-output/out-of-range/too-few-suggestions rejections, and that a model/API failure propagates rather than being swallowed.
   - `hooks.test.js` — `withLogging` logs a structured success entry and return value, and a structured failure entry while still re-throwing the original error.
   - `ai.test.js` — (existing file) now also asserts `resume_review` is actually registered on the shared `toolRegistry`.
-  - `analyze.test.js` — the full `POST /:id/analyze` route: 404 (no application), 422 (no resume text), 502 (model failure), 502 (malformed output), 200 (success), all against the real Express app + real database, with only the Anthropic client mocked.
-  - `analyzeNotConfigured.test.js` — 503 when `ANTHROPIC_API_KEY` is entirely unset, in its own file for module-registry isolation from the other analyze tests.
-- **Frontend tests** (19): the original 12, plus `ApplicationDetails.test.jsx` (new — rendering, the Analyze Fit button, the analyzing/result/error states) and two new `App.test.jsx` cases (the full view → analyze → see-result flow, and an analyze-failure case), all with `applicationsApi` mocked.
+  - `groqModelClient.test.js` — the real client's Groq-specific parsing: a forced tool call's JSON-string arguments are parsed correctly, a missing tool call is a clear error, invalid JSON in the arguments is a clear error, and an underlying API failure propagates.
+  - `analyze.test.js` — the full `POST /:id/analyze` route: 404 (no application), 422 (no resume text), 502 (model failure), 502 (malformed output), 200 (success), all against the real Express app + real database, with only the Groq client mocked.
+  - `analyzeNotConfigured.test.js` — 503 when `GROQ_API_KEY` is entirely unset, in its own file for module-registry isolation from the other analyze tests.
+- **Frontend tests** (19): the original 12, plus `ApplicationDetails.test.jsx` (rendering, the Analyze Fit button, the analyzing/result/error states) and two `App.test.jsx` cases (the full view → analyze → see-result flow, and an analyze-failure case), all with `applicationsApi` mocked — entirely provider-agnostic, so the Groq migration required zero frontend test changes.
 
 ## Current Limitations / Not Yet Implemented
 
@@ -230,6 +231,6 @@ Intentionally out of scope for this milestone:
 
 ## Model Selection Rationale
 
-**Resume Reviewer Agent → Anthropic Claude (`claude-sonnet-5`), via `@anthropic-ai/sdk`.** Chosen per the approved proposal ("strong at structured semantic text analysis"). Uses Claude's tool-use (function calling) feature specifically so the response is a schema-shaped object, not free text to be parsed — this is what makes the Zod validation step meaningful rather than a formality. The model name is read from `AnthropicModelClient`'s `model` option (defaulting to `claude-sonnet-5`) rather than hardcoded inline, so it can be updated without touching call sites.
+**Resume Reviewer Agent → Groq (`openai/gpt-oss-120b`), via `groq-sdk`.** The approved proposal originally specified Anthropic Claude; the agent was later migrated to Groq's OpenAI-compatible API. The first default model chosen from Groq's documentation, `llama-3.3-70b-versatile`, turned out to have been retired from Groq's actual hosted lineup — it returned a real `404 model_not_found` at runtime despite docs suggesting support. This was caught and fixed by querying Groq's live `GET /openai/v1/models` endpoint with a real key to get the actual current model list, rather than trusting documentation alone. `openai/gpt-oss-120b` was chosen from that live list — it's confirmed tool-use capable and is the exact model used in Groq's own official tool-calling example. Forced tool calling means the response is a schema-shaped object, not free text to be parsed — this is what makes the Zod validation step meaningful rather than a formality. The model name is read from `GroqModelClient`'s `model` option rather than hardcoded inline, so it can be swapped for another live, tool-capable model without touching call sites.
 
-**Follow-up Agent → still deferred.** Per the approved proposal this will use a second, OpenRouter-hosted model (to satisfy the ≥2-LLM-provider requirement) — that selection has not been made yet and will be documented here once that milestone starts.
+**Follow-up Agent → still deferred.** Per the approved proposal this will use a second LLM provider (to satisfy the ≥2-LLM-provider requirement) — that selection has not been made yet and will be documented here once that milestone starts.
