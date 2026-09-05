@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import ApplicationList from './components/ApplicationList';
 import ApplicationForm from './components/ApplicationForm';
 import ApplicationDetails from './components/ApplicationDetails';
+import StaleApplications from './components/StaleApplications';
 import {
   listApplications,
   createApplication,
@@ -9,6 +10,8 @@ import {
   deleteApplication,
   getApplication,
   analyzeApplication,
+  listStaleApplications,
+  generateFollowUp,
 } from './api/applicationsApi';
 import './App.css';
 
@@ -37,6 +40,15 @@ function App() {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [analysisError, setAnalysisError] = useState(null);
 
+  const [staleApplications, setStaleApplications] = useState([]);
+  const [isStaleLoading, setIsStaleLoading] = useState(true);
+  const [staleError, setStaleError] = useState(null);
+
+  const [selectedStaleId, setSelectedStaleId] = useState(null);
+  const [isGeneratingFollowUp, setIsGeneratingFollowUp] = useState(false);
+  const [followUpDraft, setFollowUpDraft] = useState(null);
+  const [followUpError, setFollowUpError] = useState(null);
+
   const fetchApplications = useCallback(async () => {
     setIsListLoading(true);
     setListError(null);
@@ -53,6 +65,23 @@ function App() {
   useEffect(() => {
     fetchApplications();
   }, [fetchApplications]);
+
+  const fetchStaleApplications = useCallback(async () => {
+    setIsStaleLoading(true);
+    setStaleError(null);
+    try {
+      const data = await listStaleApplications();
+      setStaleApplications(data);
+    } catch (err) {
+      setStaleError(err.message);
+    } finally {
+      setIsStaleLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStaleApplications();
+  }, [fetchStaleApplications]);
 
   async function handleCreate(values) {
     setIsCreating(true);
@@ -119,6 +148,36 @@ function App() {
     } finally {
       setIsAnalyzing(false);
     }
+  }
+
+  function handleSelectStale(id) {
+    setSelectedStaleId(id);
+    setFollowUpDraft(null);
+    setFollowUpError(null);
+  }
+
+  function handleCloseStale() {
+    setSelectedStaleId(null);
+    setFollowUpDraft(null);
+    setFollowUpError(null);
+  }
+
+  async function handleGenerateFollowUp(id) {
+    setIsGeneratingFollowUp(true);
+    setFollowUpError(null);
+    setFollowUpDraft(null);
+    try {
+      const result = await generateFollowUp(id);
+      setFollowUpDraft(result);
+    } catch (err) {
+      setFollowUpError(err.message);
+    } finally {
+      setIsGeneratingFollowUp(false);
+    }
+  }
+
+  function handleDraftChange(updatedDraft) {
+    setFollowUpDraft(updatedDraft);
   }
 
   async function handleSaveEdit(values) {
@@ -225,6 +284,24 @@ function App() {
             )}
           </section>
         )}
+
+        <section className="stale-applications-section">
+          <h2>Stale Applications</h2>
+          <StaleApplications
+            applications={staleApplications}
+            isLoading={isStaleLoading}
+            error={staleError}
+            onRetry={fetchStaleApplications}
+            selectedId={selectedStaleId}
+            onSelect={handleSelectStale}
+            onClose={handleCloseStale}
+            onGenerate={handleGenerateFollowUp}
+            isGenerating={isGeneratingFollowUp}
+            generateError={followUpError}
+            draft={followUpDraft}
+            onDraftChange={handleDraftChange}
+          />
+        </section>
       </main>
     </div>
   );

@@ -6,9 +6,14 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   // Optional: the app (and CRUD tests) must keep working with no key configured.
-  // Only the Resume Reviewer Agent's analyze endpoint requires it, and it fails
-  // clearly at call time if it's missing, rather than blocking the whole server.
+  // Whichever AI_PROVIDER is selected fails clearly at call time if its key
+  // is missing, rather than blocking the whole server from starting.
   GROQ_API_KEY: z.string().trim().min(1).optional(),
+  OPENROUTER_API_KEY: z.string().trim().min(1).optional(),
+  // Simple, explicit provider routing (Week 7 Phase 5) — no automatic
+  // fallback between providers, just a manual switch. See ai/index.js's
+  // createModelClient().
+  AI_PROVIDER: z.enum(['groq', 'openrouter']).default('groq'),
 });
 
 const parsed = envSchema.safeParse(process.env);

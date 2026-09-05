@@ -24,6 +24,23 @@ const sampleApplication = {
   updatedAt: '2026-08-01T00:00:00.000Z',
 };
 
+const sampleStaleApplication = {
+  id: '2',
+  company: 'Telenor',
+  role: 'Web Developer',
+  status: 'APPLIED',
+  dateApplied: '2026-08-25T00:00:00.000Z',
+  resumeVersion: 'v1',
+};
+
+// Called unconditionally on mount by every test below (App fetches both the
+// main list and the stale list on load); default it here so tests that
+// aren't specifically exercising the Follow-up flow don't need to think
+// about it.
+function mockDefaultStaleList() {
+  applicationsApi.listStaleApplications.mockResolvedValue([]);
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -146,6 +163,92 @@ describe('App', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'This application has no resume text saved yet.',
+    );
+  });
+
+  it('displays stale applications returned from the API', async () => {
+    applicationsApi.listApplications.mockResolvedValue([]);
+    applicationsApi.listStaleApplications.mockResolvedValue([sampleStaleApplication]);
+
+    render(<App />);
+
+    expect(await screen.findByText('Telenor')).toBeInTheDocument();
+    expect(screen.getByText('Web Developer')).toBeInTheDocument();
+  });
+
+  it('shows the empty state when there are no stale applications', async () => {
+    applicationsApi.listApplications.mockResolvedValue([]);
+    mockDefaultStaleList();
+
+    render(<App />);
+
+    expect(await screen.findByText(/no stale applications found/i)).toBeInTheDocument();
+  });
+
+  it('generates a follow-up draft and displays an editable subject and body', async () => {
+    const user = userEvent.setup();
+    applicationsApi.listApplications.mockResolvedValue([]);
+    applicationsApi.listStaleApplications.mockResolvedValue([sampleStaleApplication]);
+    applicationsApi.generateFollowUp.mockResolvedValue({
+      subject: 'Checking in regarding Web Developer role',
+      body: 'Dear Hiring Team, ...',
+    });
+
+    render(<App />);
+
+    await screen.findByText('Telenor');
+    await user.click(screen.getByRole('button', { name: /view \/ follow up/i }));
+
+    await screen.findByText('Follow-up Draft');
+    await user.click(screen.getByRole('button', { name: /generate follow-up/i }));
+
+    expect(applicationsApi.generateFollowUp).toHaveBeenCalledWith('2');
+    expect(await screen.findByLabelText(/subject/i)).toHaveValue(
+      'Checking in regarding Web Developer role',
+    );
+    expect(screen.getByLabelText(/body/i)).toHaveValue('Dear Hiring Team, ...');
+
+    await user.type(screen.getByLabelText(/subject/i), '!');
+    expect(screen.getByLabelText(/subject/i)).toHaveValue(
+      'Checking in regarding Web Developer role!',
+    );
+  });
+
+  it('shows a generating state while the follow-up request is in flight', async () => {
+    const user = userEvent.setup();
+    applicationsApi.listApplications.mockResolvedValue([]);
+    applicationsApi.listStaleApplications.mockResolvedValue([sampleStaleApplication]);
+    applicationsApi.generateFollowUp.mockReturnValue(new Promise(() => {}));
+
+    render(<App />);
+
+    await screen.findByText('Telenor');
+    await user.click(screen.getByRole('button', { name: /view \/ follow up/i }));
+    await screen.findByText('Follow-up Draft');
+
+    await user.click(screen.getByRole('button', { name: /generate follow-up/i }));
+
+    expect(await screen.findByRole('button', { name: /generating/i })).toBeDisabled();
+  });
+
+  it('shows an error without crashing when follow-up generation fails', async () => {
+    const user = userEvent.setup();
+    applicationsApi.listApplications.mockResolvedValue([]);
+    applicationsApi.listStaleApplications.mockResolvedValue([sampleStaleApplication]);
+    applicationsApi.generateFollowUp.mockRejectedValue(
+      new Error('AI provider is not configured on this server (missing GROQ_API_KEY)'),
+    );
+
+    render(<App />);
+
+    await screen.findByText('Telenor');
+    await user.click(screen.getByRole('button', { name: /view \/ follow up/i }));
+    await screen.findByText('Follow-up Draft');
+
+    await user.click(screen.getByRole('button', { name: /generate follow-up/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'AI provider is not configured on this server (missing GROQ_API_KEY)',
     );
   });
 });

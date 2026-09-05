@@ -111,3 +111,34 @@ section {
 .analysis-result h4 {
   margin: 0 0 8px;
 }
+
+.follow-up-panel {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.follow-up-panel dl {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  row-gap: 8px;
+  column-gap: 12px;
+  margin: 0 0 12px;
+}
+
+.follow-up-panel dt {
+  font-weight: 600;
+}
+
+.follow-up-panel dd {
+  margin: 0;
+}
+
+.follow-up-draft {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 480px;
+}

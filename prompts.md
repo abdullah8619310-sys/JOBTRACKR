@@ -165,3 +165,130 @@ This log covers the AI-assisted development sessions for **Week 5 (second half):
 - **Frontend companion**: added a matching `min` attribute to the `dateApplied` date picker in `ApplicationForm.jsx` — today's date in create mode, the record's actual `createdAt` in edit mode — for immediate UX feedback; the backend remains the actual enforcement.
 - **Second regression found and fixed**: jsdom enforces the native `min` constraint on form submission (the same way it enforces `required`, discovered earlier in this project) — two frontend tests that filled the date field with the same stale hardcoded `'2026-08-01'` value silently stopped submitting at all. Fixed the same way, with a dynamic `TODAY` computed in each test file. **19/19 frontend tests passing.**
 - Updated `README.md`'s API Overview with the new `dateApplied` constraint. The separately-identified display bug (Date Applied shown with a misleading time component via `formatDateTime`) was **not** fixed here — only the restriction was requested this time.
+
+---
+
+## Week 7, Phase 1 — Stale Application Detection
+
+**Prompt purpose:** Add the data/service layer a Follow-up Agent would need — identifying applications that have gone quiet — as a standalone step before any AI code, matching the same "prepare the data first" discipline used for `resumeText` in Week 6.
+
+**Result / outcome:** Added `backend/src/services/applications.service.js` (`getStaleCutoffDate`, `findStaleApplications`, `isApplicationStale`), using a UTC-midnight cutoff date rather than a raw `now() - 7*24h` timestamp so "stale" resolves consistently regardless of what time of day the query runs. Registered `GET /api/applications/stale` **before** `GET /:id` in the router — otherwise Express would match `stale` as the `:id` param and the route would never be reached. The query selects only the six fields a later Follow-up Agent would need, not `resumeText`/`jobDescription`. Added `staleApplications.test.js` covering the exact 7-day boundary (not stale), 8 days (stale), ordering, and field selection. No AI call is involved in this phase at all.
+
+## Week 7, Phase 2 — Follow-up Agent Skill
+
+**Prompt purpose:** Build the second AI skill (`draft_followup`) using the exact same primitives already proven for the Resume Reviewer Agent — `ToolRegistry` registration, forced tool-calling through the existing `ModelClient` abstraction, Zod-validated structured output — rather than inventing a new pattern for the second agent.
+
+**Result / outcome:** Added `backend/src/ai/skills/followUp.js` — the `draft_followup` skill, given only `company`/`role`/`dateApplied`/`resumeVersion` and explicitly instructed (in its system prompt) never to invent facts it wasn't given: no fabricated interview status, recruiter name, or prior correspondence. Added `backend/src/validators/followUp.validator.js` (`{ subject: string, body: string }`). Registered `draft_followup` in the shared `ToolRegistry` alongside `resume_review` in `registry.js`. Added `followUp.test.js` covering the skill's success path, prompt construction, and malformed-output rejection.
+
+## Week 7, Phase 3 — Follow-up REST API
+
+**Prompt purpose:** Wire the `draft_followup` skill to a real HTTP endpoint, gated on the application actually being stale.
+
+**Result / outcome:** Added `generateFollowUp` to `applications.controller.js` and `POST /api/applications/:id/follow-up` to the router — mirroring `analyzeApplication`'s exact pattern (fetch application → skill lookup via `ToolRegistry` → logging hook → `modelClient`), but checking `isApplicationStale()` first: a non-stale application gets a `422` and the AI is never called. Added `followUpEndpoint.test.js` (404 not-found, 422 not-stale, the exact 7-day boundary, 502 on model failure, 200 success — and that it persists nothing) and `followUpNotConfigured.test.js` (503 when no API key is configured).
+
+## Week 7, Phase 4 — Follow-up Frontend
+
+**Prompt purpose:** Give the Follow-up Agent a lightweight, editable UI, matching the project's "demo-oriented, not production" frontend philosophy — list stale applications, let the user request a draft, and let them review/edit it before sending it themselves, entirely outside this app.
+
+**Result / outcome:** Added `frontend/src/components/StaleApplications.jsx` (stale list, row selection, a "Generate Follow-up" button, loading/error states, and editable `subject`/`body` fields once a draft comes back) wired into `App.jsx`, plus `listStaleApplications`/`generateFollowUp` added to `applicationsApi.js`. Added `StaleApplications.test.jsx` and two new `App.test.jsx` cases for the full generate flow and its error path. Nothing is ever sent automatically — the draft is only ever displayed and left editable, exactly as designed in Phase 2.
+
+---
+
+## Week 7, Phase 5 — Multi-Model Routing (second LLM provider)
+
+**Prompt purpose:** Add OpenRouter as a second `ModelClient` implementation alongside Groq, plus a simple `AI_PROVIDER=groq|openrouter` switch — no automatic fallback yet — while keeping both AI skills (`resume_review`, `draft_followup`) completely provider-agnostic.
+
+**Prompt used (condensed from a detailed 10-step spec):** "Add OpenRouter as a second provider behind the existing ModelClient abstraction... skills should not know whether it's Groq or OpenRouter... do not hard-code an API key... verify the selected free model actually supports tool/function calling before assuming it does... add simple provider selection (AI_PROVIDER), no automatic fallback... test provider selection and the new client with mocks, no real API calls."
+
+**Result / outcome:**
+- **Verified OpenRouter's live model catalog** (`GET https://openrouter.ai/api/v1/models`) before picking a model, the same discipline used for the earlier Groq model fix — no `OPENROUTER_API_KEY` was available to empirically test with a real call, unlike Groq. Finding: none of the well-known free models (Llama, Gemini, Mistral, Qwen, DeepSeek) currently advertise `tools` support on the free tier; only smaller providers do. Selected `nvidia/nemotron-3.5-lightning:free`, documented the rotation risk clearly, and made the model overridable via a constructor option.
+- Created `backend/src/ai/clients/openRouterModelClient.js`, mirroring `groqModelClient.js`'s exact shape (same forced-tool-call request, same JSON-string argument parsing) using the standard `openai` SDK pointed at OpenRouter's OpenAI-compatible base URL (OpenRouter's own recommended approach — no dedicated SDK exists).
+- **Key design decision**: provider selection (`createModelClient()`) lives in `ai/index.js`, not the controller — the controller previously did `new ai.GroqModelClient(...)` directly, which is exactly the kind of provider-specific code the task said must not be in the controller. The factory reads `env.AI_PROVIDER` and returns the right client, so the controller now just calls `ai.createModelClient()` with zero provider knowledge.
+- **Subtle correctness point**: the factory deliberately reads `module.exports.GroqModelClient`/`module.exports.OpenRouterModelClient` (a live lookup on its own exports) rather than closing over the destructured local imports — existing tests mock a provider by mutating `ai.GroqModelClient` on the shared, cached module object, and a plain closed-over local would silently miss that mutation, risking a real network call in tests.
+- `resumeReview.js` and `followUp.js` needed **zero changes** — confirmed via a direct grep that neither file contains any "Groq"/"OpenRouter"/SDK reference.
+- Added `openRouterModelClient.test.js` (mirrors `groqModelClient.test.js`) and `modelClientRouting.test.js` (provider selection: groq/openrouter/default/missing-key-per-provider/no-cross-provider-fallback) — **12 new tests**, none making a real network call (constructing a client never triggers I/O; only `.generate()` would, and these tests never call it).
+- **Final verified status: 77/77 backend tests passing** (65 existing + 12 new), confirmed via one real HTTP call through the actual live endpoint (Groq, the default) that the refactor didn't regress production behavior. Prisma schema unchanged (`prisma validate` clean).
+- Updated `.env`/`.env.example` (placeholders only — the real Groq key was never re-typed; the file was appended to via a shell redirect specifically to avoid ever reproducing it) and `README.md`'s env-var and Model Selection Rationale sections.
+
+---
+
+## Week 7, Phase 6 — Output Validation, Retry, and Safe Fallback
+
+**Prompt purpose:** Harden the AI layer so a transient provider failure doesn't immediately surface as an error, and so invalid AI output is never silently accepted or replaced with a fabricated result.
+
+**Prompt used (condensed):** "Add a small reusable retry mechanism (max 2 attempts) for transient AI failures, shared by Resume Reviewer and Follow-up, without duplicating retry code or building a complicated orchestration framework. Don't retry validation failures. Detect transient errors generically since Groq and OpenRouter may throw different shapes. Never fabricate a fake AI result on failure. Keep resumeReview.js/followUp.js free of any Groq/OpenRouter-specific code. Test with mocks only, no real API calls."
+
+**Result / outcome:**
+- **Verified the actual error shapes both SDKs throw** rather than guessing: `groq-sdk` and `openai` (used for OpenRouter) are both generated by the same tooling and export **identically-named** error classes (`RateLimitError`, `InternalServerError`, `APIConnectionError`, `AuthenticationError`, etc.) with the same `.status` property on real HTTP-response errors. This meant a single provider-agnostic check — `status === 429 || status >= 500`, or `constructor.name` matching the two connection-error classes — works for both without `retry.js` ever importing either SDK.
+- Created `backend/src/ai/retry.js` (`withRetry`, `isRetryableError`, `MAX_ATTEMPTS = 2`). Wired into both skills with a one-line change each: `await withRetry(() => modelClient.generate({...}))`. Deliberately wraps **only** the model-client call, not the Zod validation step after it — a successfully-returned-but-malformed response never gets retried, since retrying it wouldn't fix a schema/prompt problem and could mask a real bug.
+- `resumeReview.js`/`followUp.js` still contain **zero** provider references — confirmed via grep. No fake/fallback AI result is ever constructed anywhere; a failed retry propagates as a real, controlled error (`502`) exactly as before, just now only after a genuine second attempt for retryable failures.
+- Added `retry.test.js` (7 tests: retryable/non-retryable classification, first-attempt success, retry-then-succeed, retry-then-fail, no-retry-on-non-retryable, never-exceeds-2-attempts) and `retryProviderIntegration.test.js` (4 tests, using the **real** `GroqModelClient`/`OpenRouterModelClient` classes with their SDKs' actual error classes, proving retry engages identically through both real concrete providers — not just a generic fake `modelClient`).
+- **Final verified status: 93/93 backend tests passing** (77 existing + 16 new). Frontend untouched — the existing error format was already suitable, so no frontend changes were made or needed. Prisma schema unchanged.
+- Updated `README.md`'s Resume Reviewer Agent section with a short retry/validation-reliability note.
+
+---
+
+## Week 7, Phase 7 — End-to-End Test
+
+**Prompt purpose:** Add the Week 7 "at least 1 end-to-end test" deliverable — one test genuinely exercising the complete Follow-up Agent pipeline across layers, distinct from the isolated unit/endpoint tests already in the suite.
+
+**Prompt used (condensed):** "Add an E2E test verifying an important complete user workflow. Prefer the Follow-up Agent since it's the newest feature: create an application, make it stale using the existing test setup, call `POST /:id/follow-up`, mock only the ModelClient/AI boundary, and verify the request actually travels through the route, controller, stale-application check, ToolRegistry, `draft_followup` skill, ModelClient, validation, and the HTTP response. Do not introduce Playwright/Cypress unless genuinely required — a Supertest-based backend E2E test is acceptable. Do not duplicate all the existing unit tests."
+
+**Result / outcome:** Added `backend/tests/followUp.e2e.test.js` — one test that creates a real application, backdates it to stale directly via Prisma, discovers it through the real `GET /api/applications/stale` endpoint (the same call the frontend's `StaleApplications` list makes), then generates a follow-up through the real `POST /:id/follow-up` route → controller → `ToolRegistry` → `draft_followup` skill → Zod validation chain, with only the concrete `GroqModelClient` class mocked (the same live-property-swap technique already used elsewhere in the suite). Assertions confirm the mock was actually reached with a real prompt built from that application's own data, and that `ToolRegistry.get('draft_followup')` resolves to the real, unbypassed skill function. **94/94 backend tests passing** (93 existing + 1 new), frontend unaffected, Prisma untouched.
+
+## Week 7, Phase 8 — Docker Containerization
+
+**Prompt purpose:** Satisfy the Week 7 deployment requirement with the simplest reliable local option — Docker Compose (Postgres + backend + frontend) — without introducing cloud infrastructure or changing application architecture.
+
+**Prompt used (condensed from a detailed 8-point spec):** "Create a simple containerized setup for local demonstration. Backend Dockerfile: install dependencies, start the existing Express server, receive env vars normally, never bake in API keys or `.env`. Frontend Dockerfile: build with Vite, decide how to serve the build (vite preview / nginx / another simple server) after inspecting the current Vite config. PostgreSQL via Compose with env-var-driven credentials. Make Frontend → Backend → PostgreSQL networking actually work, remembering `localhost` means something different inside a container. Update the README with simple Docker instructions. Actually run `docker compose build`/`up` if Docker is available on this machine — do not claim it works merely because the files look correct."
+
+**Result / outcome:** Added `backend/Dockerfile` (single-stage, `npm ci` including the `prisma` devDependency — needed both for `prisma generate` at build time and `prisma migrate deploy` at container start; flagged as a deliberate deviation from "production dependencies only" since there's no way to run migrations at startup otherwise without a heavier multi-stage `node_modules` copy). Added `frontend/Dockerfile` (2-stage: Vite build, then nginx — `vite preview` was deliberately not used, since Vite's own docs describe it as a local-preview tool, not a production server) and `frontend/nginx.conf`, both `.dockerignore` files, root `docker-compose.yml`, and root `.env.example`. Correctly distinguished the two different kinds of "networking" the task warned about: frontend → backend happens in the **browser** (client-side `fetch`), so `VITE_API_BASE_URL` must be the backend's *published host port*, baked in at image-build time since Vite inlines `VITE_`-prefixed vars — not the internal Docker service name; only backend → database is real container-to-container networking (`DATABASE_URL` pointing at the `db` service name). **Docker itself is not installed on this development machine** (checked both Bash and PowerShell) — `docker compose build`/`up` could not actually be run, and this was reported plainly as unverified rather than claimed as working. Ran everything that *could* be verified instead: full backend/frontend test suites, `npm run build`, and `prisma validate` — all passed, confirming no regression from adding these files.
+
+---
+
+## Week 7, Phase 9 — Performance: `dateApplied` Index
+
+**Prompt purpose:** Satisfy the Week 7 performance requirement (caching/batching/query optimization) with one small, genuine improvement rather than new infrastructure.
+
+**Result / outcome:**
+- Inspected every DB query in the app for filter/sort columns lacking an index. `findStaleApplications()` (backing `GET /api/applications/stale`) was the only one filtering (`WHERE dateApplied < cutoff`) and sorting (`ORDER BY dateApplied ASC`) on a column with no index — `JobApplication` only had `@@index([status])`. Everything else already looked appropriate (that same query already `select`s only the six fields it needs, not `resumeText`/`jobDescription`; the frontend fetches the stale list once on mount, no polling).
+- Added `@@index([dateApplied])` to `prisma/schema.prisma` and generated/applied migration `add_date_applied_index` (`CREATE INDEX` only — no data change, no behavior change, the 7-day stale rule is untouched).
+- `prisma generate` hit the same Windows `EPERM` file-lock issue seen in an earlier session (`query_engine-windows.dll.node`), this time caused by the developer's own running `nodemon`/Vite dev processes. Left it as-is rather than killing those processes — an index addition doesn't change the Prisma Client's generated types/API, so the already-generated client keeps working correctly, confirmed by the full test suite still passing.
+- **Final verified status: 94/94 backend tests passing, 36/36 frontend tests passing** (both unchanged from before this phase). `prisma validate` clean.
+- Updated `README.md` with a short new "Performance" section explaining the index and why.
+
+---
+
+## Week 7, Phase 10 — Documentation / Runbook
+
+**Prompt purpose:** Bring `README.md` and `prompts.md` up to date with everything actually implemented across Week 7 — the README still opened with "Status: Week 6 — Follow-up Agent is not built yet" and cited 40/40 backend / 19/19 frontend test counts, despite Phases 1-9 being complete and verified at 94/94 / 36/36.
+
+**Prompt used (condensed from a detailed spec):** "Create a concise developer runbook covering Project Overview, Architecture, Main Features, Environment Configuration, Local Development, Testing, Docker, an API Quick Reference, AI Provider Routing, and Limitations. Inspect the actual current routes/controllers/validators/services first — don't document functionality that doesn't exist or invent request/response fields. Keep the Docker section honest that its runtime hasn't been verified on this machine. Update `prompts.md` so Phases 1-10 are all represented, without rewriting historical entries unnecessarily."
+
+**Result / outcome:**
+- Read the actual current `README.md`/`prompts.md` plus every relevant source file before editing — `applications.validator.js`, `applications.service.js`, `routes/index.js`, `health.routes.js` — specifically to confirm the health response shape, the stale-endpoint response shape, and the router registration order, rather than assuming any of it.
+- Rewrote the status banner, added a **Project Overview** section (the problem JobTrackr solves, its three-step workflow) and a **Main Features** checklist, updated the **Architecture** diagram to show both skills and both providers (it previously showed only the Groq/`resume_review` path), updated **Folder Structure** to include every file added since Week 6 (`retry.js`, `followUp.js`, `openRouterModelClient.js`, `services/`, the Docker files), and added dedicated **Stale Application Detection**, **Follow-up Agent**, and **AI Provider Routing** sections.
+- Fixed stale/incorrect claims: the "Follow-up Agent is not built yet" line, the 40/40 and 19/19 test counts, and the missing `GET /stale` and `POST /:id/follow-up` rows (plus the latter's failure-mode table) in the **API Overview**.
+- Added an explicit, prominent caveat at the top of the **Docker** section stating `docker compose build`/`up` has not actually been run on this machine (Docker isn't installed here) — never implying it works from the files alone.
+- Rewrote **Current Limitations**: dropped the now-false "no Follow-up Agent" line, kept every limitation still genuinely true (no auth, no memory layer, no persisted analysis history, no pagination, etc.), and added the ones this phase specifically asked for (Docker untested here, OpenRouter unverified with a real key, frontend intentionally lightweight, follow-up drafts editable/not persisted/not sent).
+- Backfilled `prompts.md` entries for **Phases 1-4** (all predate this session — no verbatim original prompt is available for them, so the "Prompt used" quote block was left out for those, consistent with how this file already handles earlier entries with no recorded quote, e.g. the Week 6 gap-analysis entries) and **Phases 7-8** (both from this session, so their actual condensed task prompts are quoted).
+- No application code, Prisma schema, or Docker configuration was changed in this phase (Docker files were only referenced, not edited).
+- **Final verified status: 94/94 backend tests passing, 36/36 frontend tests passing** — both unchanged, as expected for a documentation-only phase.
+
+---
+
+## Week 7, Phase 11 — Live Multi-Model Comparison
+
+**Prompt purpose:** Satisfy the remaining Week 7 deliverable — sending the same AI task to 2+ configured providers and comparing their structured outputs — clearly distinct from the existing single-provider `AI_PROVIDER` routing, and without rewriting any existing AI architecture.
+
+**Prompt used (condensed from a detailed spec):** "Inspect the existing ModelClient/registry/skills first and report the minimum design before implementing. Reuse the existing Resume Reviewer task/skill rather than duplicating its prompt. Send the same input independently to Groq and OpenRouter, label each result by provider/model, keep the existing structured-output validation and retry behavior, and represent one provider's failure as its own error entry rather than silently substituting the other's result or fabricating data. No automatic fallback. Don't persist results. If `OPENROUTER_API_KEY` isn't configured, don't fake a live comparison — report that honestly and still test everything that can be tested safely."
+
+**Result / outcome:**
+- Confirmed directly (not assumed) that `OPENROUTER_API_KEY` is not configured in this environment (`GROQ_API_KEY` is); reported this before implementing, per the instructions.
+- Added one new controller function, `compareModels` (`applications.controller.js`), and one new route, `POST /api/applications/:id/compare-models` — no new AI module, no new Zod schema, no changes to `resumeReview.js`, `retry.js`, `toolRegistry.js`, `modelClient.js`, or either concrete client. It reuses the `resume_review` skill completely unchanged (same prompt, same forced tool-calling, same `resumeReviewOutputSchema` validation, same `withLogging` hook, and — since the skill itself calls it — the same `withRetry` per provider).
+- **Key design decision**: `compareModels` deliberately bypasses `ai.createModelClient()`, which is single-provider by design (`AI_PROVIDER`-driven) and cannot return two clients at once. Instead it constructs `ai.GroqModelClient`/`ai.OpenRouterModelClient` directly — both were already exported specifically for this kind of direct construction (see `registry.js`'s own comment) — so `AI_PROVIDER` routing itself needed zero changes and remains exactly as before.
+- **Response shape**: `{ applicationId, results: [{ provider, model, status: 'success'|'error', result? , error? }, ...] }`, one entry per provider, run concurrently via `Promise.all`. `model` is read back from the real constructed client (`modelClient.model`) rather than hardcoded, so it always reflects the actual default/override in use.
+- **Status-code design decision** (flagged explicitly, since the brief listed 200/404/422/502/503 without fully resolving the partial-failure case): `404`/`422` mirror `/analyze` exactly (missing application / missing resume text); `503` only when *neither* provider is configured (nothing to compare); `200` whenever at least one provider produced a real result, even if the other is a labeled error (a partial comparison is still a useful, honest response — better than losing the whole comparison to a single provider's outage or missing key); `502` reserved for the case where every configured provider's call genuinely failed, mirroring `/analyze`'s existing 502 semantics.
+- Added `backend/tests/compareModels.test.js` (9 tests, mocking both `GroqModelClient` and `OpenRouterModelClient` via the same live-property-swap technique used throughout this suite): 404, 422, 503 (neither configured), identical-task-sent-to-both + correct labels, one-provider-failure isolation (no fake data, other provider unaffected), 502-when-all-fail, missing-single-provider-config handled as a labeled error without touching the other, malformed-output rejection, and that a transient failure is still retried per provider before the comparison gives up on it (proving existing retry behavior survived unchanged).
+- **Final verified status: 103/103 backend tests passing** (94 existing + 9 new); frontend untouched (this phase is backend-only) — reran the full frontend suite anyway as a sanity check, still 36/36.
+- Updated `README.md`: added `POST /:id/compare-models` to the API table and its own failure-mode table, added a new **Live Multi-Model Comparison** section explicitly distinguishing routing (pick one provider) from comparison (query both at once), and noted plainly that no real OpenRouter call has actually been made — only mocked — for the same reason documented since Phase 5 (no key available in this environment).

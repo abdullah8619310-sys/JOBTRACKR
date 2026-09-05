@@ -1,0 +1,70 @@
+# JobTrackr — local containerized demo stack (Week 7, Phase 8).
+#
+# Three services: PostgreSQL, the Express backend, and the built React
+# frontend served by nginx. This does not replace local (non-Docker)
+# `npm run dev` in either backend/ or frontend/ — both remain unchanged.
+#
+# The frontend talks to the backend from the BROWSER (client-side fetch),
+# not container-to-container, so it must use the backend's published host
+# port (e.g. http://localhost:3000), never the internal service name
+# `backend`. Only the backend -> database connection is internal Docker
+# networking (host "db", the compose service name).
+#
+# Copy .env.example to .env in this same directory before running.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jobtrackr}
+      POSTGRES_USER: ${POSTGRES_USER:-jobtrackr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobtrackr}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - jobtrackr_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jobtrackr} -d ${POSTGRES_DB:-jobtrackr}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: ${BACKEND_PORT:-3000}
+      # Always points at the "db" service by internal Docker DNS — this is
+      # intentionally different from backend/.env's own DATABASE_URL (which
+      # uses localhost, for non-Docker `npm run dev`).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jobtrackr}:${POSTGRES_PASSWORD:-jobtrackr}@db:5432/${POSTGRES_DB:-jobtrackr}?schema=public
+      AI_PROVIDER: ${AI_PROVIDER:-groq}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    # Applies pending Prisma migrations against the containerized database
+    # (using the existing migration history — no new migration is created),
+    # then starts the real server. Migrations need a live DB connection, so
+    # this can only run at container start, not at image build time.
+    command: sh -c "npx prisma migrate deploy && node src/server.js"
+    ports:
+      - "${BACKEND_PORT:-3000}:${BACKEND_PORT:-3000}"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+
+volumes:
+  jobtrackr_postgres_data:

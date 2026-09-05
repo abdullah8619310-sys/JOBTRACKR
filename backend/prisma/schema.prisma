@@ -28,4 +28,10 @@ model JobApplication {
   updatedAt      DateTime          @updatedAt
 
   @@index([status])
+  // GET /api/applications/stale (findStaleApplications) is the only query
+  // that filters (WHERE dateApplied < cutoff) and sorts (ORDER BY
+  // dateApplied ASC) on this column — an index lets Postgres satisfy both
+  // the range scan and the ordering directly instead of a full table scan
+  // + separate sort.
+  @@index([dateApplied])
 }

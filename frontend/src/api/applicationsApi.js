@@ -36,6 +36,16 @@ function analyzeApplication(id) {
   });
 }
 
+function listStaleApplications() {
+  return request(`${BASE_PATH}/stale`);
+}
+
+function generateFollowUp(id) {
+  return request(`${BASE_PATH}/${id}/follow-up`, {
+    method: 'POST',
+  });
+}
+
 export {
   listApplications,
   getApplication,
@@ -43,4 +53,6 @@ export {
   updateApplication,
   deleteApplication,
   analyzeApplication,
+  listStaleApplications,
+  generateFollowUp,
 };
