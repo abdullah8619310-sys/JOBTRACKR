@@ -5,7 +5,6 @@ const {
   createApplicationSchema,
   updateApplicationSchema,
   idParamSchema,
-  toUtcDateOnly,
 } = require('../validators/applications.validator');
 // Accessed as a namespace object (not destructured) so tests can safely
 // replace e.g. `ai.GroqModelClient` on the shared, cached module object
@@ -54,13 +53,6 @@ async function updateApplication(req, res) {
   const existing = await prisma.jobApplication.findUnique({ where: { id } });
   if (!existing) {
     throw new AppError('Job application not found', 404);
-  }
-
-  if (data.dateApplied && toUtcDateOnly(data.dateApplied) < toUtcDateOnly(existing.createdAt)) {
-    throw new AppError(
-      'dateApplied cannot be before this record was created — a job cannot have been applied to before this application record existed',
-      400,
-    );
   }
 
   const application = await prisma.jobApplication.update({ where: { id }, data });

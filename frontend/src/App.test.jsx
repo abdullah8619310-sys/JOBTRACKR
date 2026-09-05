@@ -6,10 +6,6 @@ import * as applicationsApi from './api/applicationsApi';
 
 vi.mock('./api/applicationsApi');
 
-// dateApplied has a `min` of today (a record's dateApplied can never be
-// before its own creation date), so submitting the real form in tests must
-// use today's date — a fixed past date would fail the input's native
-// min-date constraint in jsdom.
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const sampleApplication = {

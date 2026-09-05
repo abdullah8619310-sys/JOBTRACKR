@@ -34,13 +34,6 @@ function ApplicationForm({
 
   const isEdit = mode === 'edit';
 
-  // dateApplied can never be before a record's own creation date (enforced
-  // by the backend too): for a new record that's today; for an existing one
-  // it's the record's actual createdAt.
-  const minDateApplied = isEdit
-    ? toDateInputValue(initialValues?.createdAt)
-    : toDateInputValue(new Date());
-
   function handleChange(event) {
     const { name, value } = event.target;
     setValues((prev) => ({ ...prev, [name]: value }));
@@ -96,7 +89,6 @@ function ApplicationForm({
           type="date"
           value={values.dateApplied}
           onChange={handleChange}
-          min={minDateApplied || undefined}
           required
         />
       </div>

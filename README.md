@@ -235,7 +235,7 @@ Base URL: `http://localhost:3000`. All request/response bodies are JSON.
 | POST | `/api/applications/:id/follow-up` | — (no body) | `200` `{ subject, body }` | Runs the Follow-up Agent. Only for a stale application (see failure modes below). Nothing is persisted or sent. |
 | POST | `/api/applications/:id/compare-models` | — (no body) | `200`/`502` `{ applicationId, results: [...] }` | Sends the same resume_review task to Groq **and** OpenRouter independently and returns both, labeled. See [Live Multi-Model Comparison](#live-multi-model-comparison) and failure modes below. |
 
-`status` must be one of: `APPLIED`, `INTERVIEWING`, `OFFER`, `REJECTED`, `WITHDRAWN`. `resumeText` is required on create; it's nullable at the database level only so pre-existing rows aren't broken by the migration that added it. `dateApplied` can never be before the record's own creation date — on create it can't be before today (`400`, validated in Zod); on update it can't be before the record's actual `createdAt` (`400`, checked in the controller against the fetched row). The frontend date picker also sets a matching `min` for immediate feedback, but the backend is the actual enforcement.
+`status` must be one of: `APPLIED`, `INTERVIEWING`, `OFFER`, `REJECTED`, `WITHDRAWN`. `resumeText` is required on create; it's nullable at the database level only so pre-existing rows aren't broken by the migration that added it. `dateApplied` has no restriction relative to the record's own creation date — any past, present, or future date is accepted on both create and update, so a user can log an application retroactively (e.g. one they actually submitted last week).
 
 **`POST /:id/analyze` failure modes:**
 
@@ -397,17 +397,17 @@ VITE_API_BASE_URL=http://localhost:3000
 ## Testing
 
 ```bash
-cd backend && npm test           # Vitest + Supertest — 103 tests, 18 files
-cd frontend && npm test          # Vitest + React Testing Library — 36 tests, 5 files
+cd backend && npm test           # Vitest + Supertest — 102 tests, 18 files
+cd frontend && npm test          # Vitest + React Testing Library — 40 tests, 5 files
 cd frontend && npm run build     # production build (also what the frontend Docker image runs)
 cd backend && npx prisma validate  # schema sanity check
 ```
 
-**Current status (last verified locally): backend 103/103 passing, frontend 36/36 passing.**
+**Current status (last verified locally): backend 102/102 passing, frontend 40/40 passing.**
 
 **Neither Groq nor OpenRouter is ever called for real during automated tests.** The AI-boundary mocking technique is consistent throughout the suite: `resumeReview.test.js`/`followUp.test.js`/`hooks.test.js` inject a fake `modelClient` directly; `groqModelClient.test.js`/`openRouterModelClient.test.js` construct the real client class but replace its internal SDK call with a mock; every endpoint-level test (`analyze*.test.js`, `followUp*.test.js`, the E2E test) replaces `GroqModelClient` on the shared, cached `backend/src/ai` module object with a mock class before any request is made — a plain Node module-cache technique, chosen after confirming `vi.mock` does not reliably intercept this project's plain CommonJS `require()` chain. A real Groq API key is only ever used for manual/demo verification, never in `npm test`.
 
-- **Backend tests** (103, 18 files), grouped by feature:
+- **Backend tests** (102, 18 files), grouped by feature:
   - CRUD/health: `applications.test.js`, `health.test.js`.
   - Resume Reviewer Agent: `resumeReview.test.js`, `hooks.test.js`, `ai.test.js`, `groqModelClient.test.js`, `analyze.test.js`, `analyzeNotConfigured.test.js`.
   - Stale detection: `staleApplications.test.js` (7-day boundary, ordering, field selection).
@@ -416,7 +416,7 @@ cd backend && npx prisma validate  # schema sanity check
   - Live model comparison: `compareModels.test.js` (same task sent to both providers, correct provider/model labels, malformed-output rejection, one-provider-failure isolation, missing-config handling, retry still engages per provider).
   - Retry/reliability: `retry.test.js` (generic classification/attempt logic), `retryProviderIntegration.test.js` (retry through the real Groq/OpenRouter client classes and their actual SDK error types).
   - **End-to-end**: `followUp.e2e.test.js` — one test walking a real application through creation → backdating to stale → `GET /stale` discovery → `POST /:id/follow-up`, through the real route/controller/`ToolRegistry`/skill/Zod-validation chain, with only `GroqModelClient` mocked.
-- **Frontend tests** (36, 5 files): `ApplicationList`, `ApplicationForm`, `ApplicationDetails` (incl. the Analyze Fit flow), `StaleApplications` (list, selection, follow-up generation, editable draft), and `App.test.jsx` (full app-level flows), all with `applicationsApi` mocked.
+- **Frontend tests** (40, 5 files): `ApplicationList`, `ApplicationForm` (incl. that `dateApplied` has no minimum-date restriction), `ApplicationDetails` (incl. the Analyze Fit flow), `StaleApplications` (list, selection, follow-up generation, editable draft), and `App.test.jsx` (full app-level flows), all with `applicationsApi` mocked.
 
 ## Known Limitations
 

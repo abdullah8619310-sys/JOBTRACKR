@@ -2,8 +2,6 @@ const request = require('supertest');
 const app = require('../src/app');
 const prisma = require('../src/lib/prisma');
 
-// dateApplied can never be before a record's own creation date, so tests
-// must use "today", not a fixed past date that will eventually go stale.
 const TODAY = new Date().toISOString().slice(0, 10);
 
 describe('Job Applications API', () => {
@@ -97,10 +95,10 @@ describe('Job Applications API', () => {
   });
 });
 
-describe('dateApplied cannot be before a record\'s own creation date', () => {
-  function yesterday() {
+describe('dateApplied has no restriction relative to the record\'s creation date', () => {
+  function daysAgo(days) {
     const d = new Date();
-    d.setUTCDate(d.getUTCDate() - 1);
+    d.setUTCDate(d.getUTCDate() - days);
     return d.toISOString().slice(0, 10);
   }
 
@@ -109,18 +107,17 @@ describe('dateApplied cannot be before a record\'s own creation date', () => {
     await prisma.$disconnect();
   });
 
-  it('rejects creating an application with dateApplied before today', async () => {
+  it('accepts creating an application with a dateApplied from the past (logging a retroactive application)', async () => {
     const res = await request(app).post('/api/applications').send({
       company: 'Date Restriction Co',
       role: 'Backend Engineer',
-      dateApplied: yesterday(),
+      dateApplied: daysAgo(10),
       resumeVersion: 'v1',
       resumeText: 'Some resume text.',
       jobDescription: 'Some job description.',
     });
 
-    expect(res.status).toBe(400);
-    expect(res.body.details?.[0]?.path).toBe('dateApplied');
+    expect(res.status).toBe(201);
   });
 
   it('accepts creating an application with dateApplied set to today', async () => {
@@ -136,7 +133,7 @@ describe('dateApplied cannot be before a record\'s own creation date', () => {
     expect(res.status).toBe(201);
   });
 
-  it('rejects updating dateApplied to a date before the record was created', async () => {
+  it('accepts updating dateApplied to a date before the record was created', async () => {
     const createRes = await request(app).post('/api/applications').send({
       company: 'Date Restriction Co',
       role: 'Backend Engineer',
@@ -148,25 +145,7 @@ describe('dateApplied cannot be before a record\'s own creation date', () => {
 
     const res = await request(app)
       .put(`/api/applications/${createRes.body.id}`)
-      .send({ dateApplied: yesterday() });
-
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/dateApplied/i);
-  });
-
-  it('accepts updating dateApplied to today (on/after the record\'s creation date)', async () => {
-    const createRes = await request(app).post('/api/applications').send({
-      company: 'Date Restriction Co',
-      role: 'Backend Engineer',
-      dateApplied: TODAY,
-      resumeVersion: 'v1',
-      resumeText: 'Some resume text.',
-      jobDescription: 'Some job description.',
-    });
-
-    const res = await request(app)
-      .put(`/api/applications/${createRes.body.id}`)
-      .send({ dateApplied: TODAY });
+      .send({ dateApplied: daysAgo(10) });
 
     expect(res.status).toBe(200);
   });
